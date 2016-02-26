@@ -1,7 +1,6 @@
 package cmux
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"net"
@@ -126,8 +125,9 @@ func (m *cMux) serve(c net.Conn, donec <-chan struct{}, wg *sync.WaitGroup) {
 	muc := newMuxConn(c)
 	for _, sl := range m.sls {
 		for _, s := range sl.ss {
-			matched := s(muc.getSniffer())
+			matched := s(muc.startSniffing())
 			if matched {
+				muc.doneSniffing()
 				select {
 				case sl.l.connc <- muc:
 				case <-donec:
@@ -177,13 +177,13 @@ func (l muxListener) Accept() (net.Conn, error) {
 // MuxConn wraps a net.Conn and provides transparent sniffing of connection data.
 type MuxConn struct {
 	net.Conn
-	buf     bytes.Buffer
-	sniffer bufferedReader
+	buf bufferedReader
 }
 
 func newMuxConn(c net.Conn) *MuxConn {
 	return &MuxConn{
 		Conn: c,
+		buf:  bufferedReader{source: c},
 	}
 }
 
@@ -197,22 +197,15 @@ func newMuxConn(c net.Conn) *MuxConn {
 // a non-zero number of bytes at the end of the input stream may
 // return either err == EOF or err == nil.  The next Read should
 // return 0, EOF.
-//
-// This function implements the latter behaviour, returning the
-// (non-nil) error from the same call.
 func (m *MuxConn) Read(p []byte) (int, error) {
-	n1, err := m.buf.Read(p)
-	if err == nil && m.buf.Len() == 0 {
-		err = io.EOF
-	}
-	if n1 == len(p) || err != io.EOF {
-		return n1, err
-	}
-	n2, err := m.Conn.Read(p[n1:])
-	return n1 + n2, err
+	return m.buf.Read(p)
 }
 
-func (m *MuxConn) getSniffer() io.Reader {
-	m.sniffer = bufferedReader{source: m.Conn, buffer: &m.buf, bufferSize: m.buf.Len()}
-	return &m.sniffer
+func (m *MuxConn) startSniffing() io.Reader {
+	m.buf.reset(true)
+	return &m.buf
+}
+
+func (m *MuxConn) doneSniffing() {
+	m.buf.reset(false)
 }

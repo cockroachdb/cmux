@@ -12,9 +12,10 @@ import (
 // without allocating.
 type bufferedReader struct {
 	source     io.Reader
-	buffer     *bytes.Buffer
+	buffer     bytes.Buffer
 	bufferRead int
 	bufferSize int
+	sniffing   bool
 }
 
 func (s *bufferedReader) Read(p []byte) (int, error) {
@@ -22,14 +23,26 @@ func (s *bufferedReader) Read(p []byte) (int, error) {
 	bn := copy(p, s.buffer.Bytes()[s.bufferRead:s.bufferSize])
 	s.bufferRead += bn
 
+	// Do not call s.source.Read if we have read as much as requested from the
+	// buffer.
+	if bn == len(p) {
+		return bn, nil
+	}
+
 	p = p[bn:]
 
 	// Funtionality of io.TeeReader.
 	sn, sErr := s.source.Read(p)
-	if sn > 0 {
+	if sn > 0 && s.sniffing {
 		if wn, wErr := s.buffer.Write(p[:sn]); wErr != nil {
 			return bn + wn, wErr
 		}
 	}
 	return bn + sn, sErr
+}
+
+func (s *bufferedReader) reset(snif bool) {
+	s.sniffing = snif
+	s.bufferRead = 0
+	s.bufferSize = s.buffer.Len()
 }
