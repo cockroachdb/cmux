@@ -9,13 +9,12 @@ import (
 	"net/rpc"
 	"strings"
 
-	"google.golang.org/grpc"
-
 	"golang.org/x/net/context"
 	"golang.org/x/net/websocket"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/examples/helloworld/helloworld"
 
-	"github.com/soheilhy/cmux"
-	grpchello "google.golang.org/grpc/examples/helloworld/helloworld"
+	"github.com/cockroachdb/cmux"
 )
 
 type exampleHTTPHandler struct{}
@@ -74,15 +73,15 @@ func serveRPC(l net.Listener) {
 
 type grpcServer struct{}
 
-func (s *grpcServer) SayHello(ctx context.Context, in *grpchello.HelloRequest) (
-	*grpchello.HelloReply, error) {
+func (s *grpcServer) SayHello(ctx context.Context, in *helloworld.HelloRequest) (
+	*helloworld.HelloReply, error) {
 
-	return &grpchello.HelloReply{Message: "Hello " + in.Name + " from cmux"}, nil
+	return &helloworld.HelloReply{Message: "Hello " + in.Name + " from cmux"}, nil
 }
 
 func serveGRPC(l net.Listener) {
 	grpcs := grpc.NewServer()
-	grpchello.RegisterGreeterServer(grpcs, &grpcServer{})
+	helloworld.RegisterGreeterServer(grpcs, &grpcServer{})
 	if err := grpcs.Serve(l); err != cmux.ErrListenerClosed {
 		panic(err)
 	}

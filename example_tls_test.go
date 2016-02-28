@@ -9,7 +9,7 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/soheilhy/cmux"
+	"github.com/cockroachdb/cmux"
 )
 
 type anotherHTTPHandler struct{}

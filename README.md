@@ -1,8 +1,8 @@
-# cmux: Connection Mux ![Travis Build Status](https://api.travis-ci.org/soheilhy/args.svg?branch=master "Travis Build Status") [![GoDoc](https://godoc.org/github.com/soheilhy/cmux?status.svg)](http://godoc.org/github.com/soheilhy/cmux)
+# cmux: Connection Mux [![Build Status](https://travis-ci.org/cockroachdb/cmux.svg?branch=master)](https://travis-ci.org/cockroachdb/cmux) [![GoDoc](https://godoc.org/github.com/cockroachdb/cmux?status.svg)](https://godoc.org/github.com/cockroachdb/cmux)
 
-cmux is a generic Go library to multiplex connections based on
-their payload. Using cmux, you can serve gRPC, SSH, HTTPS, HTTP,
-Go RPC, and pretty much any other protocol on the same TCP listener.
+cmux is a generic Go library to multiplex connections based on their payload.
+Using cmux, you can serve gRPC, SSH, HTTPS, HTTP, Go RPC, and pretty much any
+other protocol on the same TCP listener.
 
 ## How-To
 Simply create your main listener, create a cmux for that listener,
@@ -43,25 +43,21 @@ go trpcS.Accept(trpcL)
 m.Serve()
 ```
 
-Take a look at [other examples in the GoDoc](http://godoc.org/github.com/soheilhy/cmux/#pkg-examples).
-
-## Docs
-* [GoDocs](https://godoc.org/github.com/soheilhy/cmux)
+There are [more examples on GoDoc](https://godoc.org/github.com/cockroachdb/cmux#pkg-examples).
 
 ## Performance
-There is room for improvment but, since we are only matching
-the very first bytes of a connection, the performance overheads on
-long-lived connections (i.e., RPCs and pipelined HTTP streams)
-is negligible.
-
-*TODO(soheil)*: Add benchmarks.
+Since we are only matching the very first bytes of a connection, the
+performance overhead on long-lived connections (i.e., RPCs and pipelined HTTP
+streams) is negligible.
 
 ## Limitations
-* *TLS*: `net/http` uses a type assertion to identify TLS connections; since
-cmux's lookahead-implementing connection wraps the underlying TLS connection,
-this type assertion fails.
-Because of that, you can serve HTTPS using cmux but `http.Request.TLS`
-would not be set in your handlers.
+* *TLS*: `net/http` uses a [type assertion](https://github.com/golang/go/issues/14221)
+to identify TLS connections; since cmux's lookahead-implementing connection
+wraps the underlying TLS connection, this type assertion fails. This means you
+can serve HTTPS using cmux but `http.Request.TLS` will not be set in your
+handlers. If you are able to wrap TLS around cmux, you can work around this
+limitation. See https://github.com/cockroachdb/cockroach/commit/83caba2 for an
+example of this approach.
 
 * *Different Protocols on The Same Connection*: `cmux` matches the connection
 when it's accepted. For example, one connection can be either gRPC or REST, but
