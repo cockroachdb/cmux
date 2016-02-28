@@ -10,7 +10,7 @@ import (
 	"net/rpc"
 	"strings"
 
-	"github.com/soheilhy/cmux"
+	"github.com/cockroachdb/cmux"
 )
 
 type recursiveHTTPHandler struct{}
