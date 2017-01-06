@@ -65,6 +65,10 @@ func newChanListener() *chanListener {
 	return &chanListener{connCh: make(chan net.Conn, 1)}
 }
 
+func (l *chanListener) Close() error {
+	return nil
+}
+
 func (l *chanListener) Accept() (net.Conn, error) {
 	if c, ok := <-l.connCh; ok {
 		return c, nil
@@ -415,6 +419,22 @@ func TestClose(t *testing.T) {
 		if _, err := c2.Read([]byte{}); err != io.ErrClosedPipe {
 			t.Fatalf("connection is not closed and is leaked: %v", err)
 		}
+	}
+}
+
+func TestCloseListenerWithoutServe(t *testing.T) {
+	defer leakCheck(t)()
+
+	l := newChanListener()
+	muxl := New(l)
+	anyl := muxl.Match(Any())
+
+	if err := anyl.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := anyl.Accept(); err != ErrListenerClosed {
+		t.Fatal(err)
 	}
 }
 
