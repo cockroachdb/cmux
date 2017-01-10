@@ -99,7 +99,6 @@ func (m *cMux) Match(matchers ...Matcher) net.Listener {
 	ml := muxListener{
 		Listener: m.root,
 		connc:    make(chan net.Conn, m.bufLen),
-		closed:   new(sync.Once),
 	}
 	m.sls = append(m.sls, matchersListener{ss: matchers, l: ml})
 	return ml
@@ -113,7 +112,7 @@ func (m *cMux) Serve() error {
 		wg.Wait()
 
 		for _, sl := range m.sls {
-			_ = sl.l.Close()
+			close(sl.l.connc)
 			// Drain the connections enqueued for the listener.
 			for c := range sl.l.connc {
 				_ = c.Close()
@@ -178,15 +177,7 @@ func (m *cMux) handleErr(err error) bool {
 
 type muxListener struct {
 	net.Listener
-	connc  chan net.Conn
-	closed *sync.Once
-}
-
-func (l muxListener) Close() error {
-	l.closed.Do(func() {
-		close(l.connc)
-	})
-	return l.Listener.Close()
+	connc chan net.Conn
 }
 
 func (l muxListener) Accept() (net.Conn, error) {
