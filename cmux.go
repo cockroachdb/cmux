@@ -97,9 +97,9 @@ type cMux struct {
 
 func (m *cMux) Match(matchers ...Matcher) net.Listener {
 	ml := muxListener{
-		Listener: m.root,
-		connc:    make(chan net.Conn, m.bufLen),
-		closed:   new(sync.Once),
+		Listener:   m.root,
+		connc:      make(chan net.Conn, m.bufLen),
+		closeConnc: new(sync.Once),
 	}
 	m.sls = append(m.sls, matchersListener{ss: matchers, l: ml})
 	return ml
@@ -113,13 +113,19 @@ func (m *cMux) Serve() error {
 		wg.Wait()
 
 		for _, sl := range m.sls {
-			_ = sl.l.Close()
+			close(sl.l.connc)
 			// Drain the connections enqueued for the listener.
 			for c := range sl.l.connc {
 				_ = c.Close()
 			}
 		}
 	}()
+
+	// Take ownership of all of the muxListeners' channels, since once Serve is
+	// called the cMux takes responsibility for closing them.
+	for _, sl := range m.sls {
+		sl.l.closeConnc.Do(func() {})
+	}
 
 	for {
 		c, err := m.root.Accept()
@@ -178,12 +184,17 @@ func (m *cMux) handleErr(err error) bool {
 
 type muxListener struct {
 	net.Listener
-	connc  chan net.Conn
-	closed *sync.Once
+	connc chan net.Conn
+	// closeConnc controls whether connc should be closed when Close is called
+	// on this listener. If the muxListener's cMux owner has started serving, then
+	// it handles closing the channel. However, if Serve is never called on the
+	// cMux, then we we have to make sure that calling Close on this listener will
+	// cause any Accept calls on it to return in a timely manner (see #7).
+	closeConnc *sync.Once
 }
 
 func (l muxListener) Close() error {
-	l.closed.Do(func() {
+	l.closeConnc.Do(func() {
 		close(l.connc)
 	})
 	return l.Listener.Close()
