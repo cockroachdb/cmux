@@ -20,6 +20,7 @@ import (
 	"io"
 	"net"
 	"sync"
+	"time"
 )
 
 // Matcher matches a connection based on its content.
@@ -32,7 +33,9 @@ type ErrorHandler func(error) bool
 var _ net.Error = ErrNotMatched{}
 
 // ErrNotMatched is returned whenever a connection is not matched by any of
-// the matchers registered in the multiplexer.
+// the matchers registered in the multiplexer. This could be due to the
+// connection not matching, or an error while reading the connection, or
+// due to a timeout configured on the multiplexer.
 type ErrNotMatched struct {
 	c net.Conn
 }
@@ -46,6 +49,7 @@ func (e ErrNotMatched) Error() string {
 func (e ErrNotMatched) Temporary() bool { return true }
 
 // Timeout implements the net.Error interface.
+// TODO(alyshan): Identify errors due to configured timeout.
 func (e ErrNotMatched) Timeout() bool { return false }
 
 type errListenerClosed string
@@ -65,6 +69,18 @@ func New(l net.Listener) CMux {
 		bufLen: 1024,
 		errh:   func(_ error) bool { return true },
 		donec:  make(chan struct{}),
+	}
+}
+
+// NewWithTimeout instantiates a new connection multiplexer that sets a timeout on matching
+// a connection.
+func NewWithTimeout(l net.Listener, timeout time.Duration) CMux {
+	return &cMux{
+		root:         l,
+		bufLen:       1024,
+		errh:         func(_ error) bool { return true },
+		donec:        make(chan struct{}),
+		matchTimeout: timeout,
 	}
 }
 
@@ -88,11 +104,12 @@ type matchersListener struct {
 }
 
 type cMux struct {
-	root   net.Listener
-	bufLen int
-	errh   ErrorHandler
-	donec  chan struct{}
-	sls    []matchersListener
+	root         net.Listener
+	bufLen       int
+	errh         ErrorHandler
+	donec        chan struct{}
+	sls          []matchersListener
+	matchTimeout time.Duration
 }
 
 func (m *cMux) Match(matchers ...Matcher) net.Listener {
@@ -137,11 +154,17 @@ func (m *cMux) Serve() error {
 func (m *cMux) serve(c net.Conn, donec <-chan struct{}, wg *sync.WaitGroup) {
 	defer wg.Done()
 
+	if m.matchTimeout > 0 {
+		_ = c.SetReadDeadline(time.Now().Add(m.matchTimeout))
+	}
+
 	muc := newMuxConn(c)
 	for _, sl := range m.sls {
 		for _, s := range sl.ss {
 			matched := s(muc.getSniffer())
 			if matched {
+				// Reset (clear) any deadline once we've matched.
+				_ = c.SetReadDeadline(time.Time{})
 				select {
 				case sl.l.connc <- muc:
 				case <-donec:
