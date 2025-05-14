@@ -418,6 +418,104 @@ func TestClose(t *testing.T) {
 	}
 }
 
+func readConnChan(conn net.Conn, buf []byte) <-chan struct {
+	n   int
+	err error
+} {
+	ch := make(chan struct {
+		n   int
+		err error
+	}, 1)
+	go func() {
+		n, err := conn.Read(buf)
+		ch <- struct {
+			n   int
+			err error
+		}{n, err}
+	}()
+	return ch
+}
+
+func TestServeWithTimeout(t *testing.T) {
+	defer leakCheck(t)()
+	errCh := make(chan error)
+	defer func() {
+		select {
+		case err := <-errCh:
+			t.Fatal(err)
+		default:
+		}
+	}()
+
+	t.Run("timeout expires", func(t *testing.T) {
+		l, cleanup := testListener(t)
+		defer cleanup()
+		mux := NewWithTimeout(l, 100*time.Millisecond)
+		httpl := mux.Match(HTTP1())
+		go runTestHTTPServer(errCh, httpl)
+		go safeServe(errCh, mux)
+
+		// Open a connection but send no data so it does not get matched.
+		conn, err := net.Dial("tcp", l.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer conn.Close()
+
+		// Wait for the timeout to occur
+		time.Sleep(200 * time.Millisecond)
+		// Try to read from the connection, the multiplexer should have already
+		// closed the connection since the matchers would have timed out while
+		// attempting to read it.
+		readBuf := make([]byte, 1)
+		_, err = conn.Read(readBuf)
+		if err == nil {
+			t.Error("expected error reading from connection, got nil")
+		}
+		if !errors.Is(err, io.EOF) {
+			t.Errorf("expected EOF reading from connection, got: %v", err)
+		}
+	})
+
+	t.Run("timeout does not expire", func(t *testing.T) {
+		l, cleanup := testListener(t)
+		defer cleanup()
+		mux := NewWithTimeout(l, 100*time.Millisecond)
+		mux.Match(Any())
+		go safeServe(errCh, mux)
+
+		// Open a connection, it should match immediately.
+		matchedConn, err := net.Dial("tcp", l.Addr().String())
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer matchedConn.Close()
+
+		// Timeout should not get triggered.
+		time.Sleep(200 * time.Millisecond)
+		// Create a channel that will send after 1 second.
+		timeoutCh := make(chan struct{})
+		go func() {
+			time.Sleep(1 * time.Second)
+			timeoutCh <- struct{}{}
+		}()
+		// The channel we created above should complete while reading from the connection should
+		// simply block indefinitley.
+		readBuf := make([]byte, 1)
+		select {
+		case <-timeoutCh:
+			break
+		case result := <-readConnChan(matchedConn, readBuf):
+			if result.err != nil {
+				t.Errorf("unexpected error reading from connection: %v", result.err)
+			} else {
+				t.Errorf("unexpected read of %d bytes from connection", result.n)
+			}
+		}
+	})
+
+}
+
 // Cribbed from google.golang.org/grpc/test/end2end_test.go.
 
 // interestingGoroutines returns all goroutines we care about for the purpose
